@@ -1,3 +1,7 @@
 language: haskell
 env:
  - GHCVER=7.10.2
+
+install:
+    - cabal install shake here regex-posix temporary 
+    - ghc --make src/Shakefile.hs 

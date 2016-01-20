@@ -1,0 +1,4 @@
+install:
+    - sudo apt-get install haskell-platform
+    - cabal update && cabal install shake
+    - shake --demo 

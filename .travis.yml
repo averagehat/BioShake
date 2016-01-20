@@ -2,6 +2,6 @@ language: haskell
 env:
  - GHCVER=7.4.2
 install:
-    - cabal update && cabal install shake
+    - cabal install shake
 script:
     - shake --demo 

@@ -35,7 +35,8 @@ block = shakeArgs shakeOptions{shakeFiles="_build"} $ do
        mapPairedUnpaired pCutAdapt unpCutAdapt  allFastqs 
 
     "data/*.fastq" %> \out -> do 
-         need [out -<.> "sff"] 
+         let src = out -<.> "sff"
+         need [src]
          runPython [i|
          from Bio import SeqIO
          SeqIO.convert('${src}', 'sff', '${out}', 'fastq')

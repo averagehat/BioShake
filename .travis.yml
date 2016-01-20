@@ -1,4 +1,6 @@
+env:
+ - GHCVER=7.4.2
 install:
-    - sudo apt-get install haskell-platform
     - cabal update && cabal install shake
+script:
     - shake --demo 

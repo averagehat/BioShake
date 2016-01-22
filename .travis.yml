@@ -2,7 +2,7 @@ language: haskell
 env:
  - GHCVER=7.10.2 
 install:
-    - cabal configure && ghc build
+    - cabal configure && cabal build
 
 # from https://github.com/commercialhaskell/stack/blob/master/doc/GUIDE.md
 # Use new container infrastructure to enable caching

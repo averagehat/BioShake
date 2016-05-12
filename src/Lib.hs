@@ -1,4 +1,4 @@
-{-# LANGUAGE QuasiQuotes #-}
+{-# LANGUAGE QuasiQuotes #-} 
 {-# LANGUAGE FlexibleContexts #-} -- needed for Regex (=~)
 module Lib
     ( block
@@ -14,71 +14,84 @@ import Control.Monad
 import Control.Applicative
 -- To run:
 -- stack setup
+-- stack build
 -- stack exec shell-exe
 
 block = shakeArgs shakeOptions{shakeFiles="_build"} $ do
 
-    want ["data/align/align.bam"] 
+    want ["data/align/align.bam"] -- final result of build
 
-    "data/align/align.bam" %> \out -> do -- align.bam is the target
-       fqs <- allFqs
-       let trimmed = map (<.> "cutadapt") fqs
-       need trimmed
-       --TODO: replace with mapper
-       cmd Shell "cat" trimmed ">" out 
+    "data/align/align.bam" %> \out -> do -- align.bam is the target, assinged to `out`
+      fqs <- allFqs
+      let trimmed = map (<.> "cutadapt") fqs
+      need trimmed
+      --TODO: replace "cat" with mapper
+      cmd Shell "cat" trimmed ">" out 
 
-    "data/*.cutadapt" %> \out -> do 
-       sffs <- getDirectoryFiles "" ["data/*.sff"]
-       let fqs = [c -<.> "fastq" | c <- sffs]  -- -<.> replaces extension
-       need fqs
-       allFastqs <- getDirectoryFiles "" ["data/*.fastq"] 
-       mapPairedUnpaired pCutAdapt unpCutAdapt  allFastqs 
+    "data/*.cutadapt" %> \out -> do -- trim with cutadapt.
+      fqs <- allFqs
+      need fqs
+      mapPairedUnpaired pCutAdapt unpCutAdapt fqs
 
-    "data/*.fastq" %> \out -> do 
-         let src = out -<.> "sff"
-         need [src]
-         runPython [i|
-         from Bio import SeqIO
-         SeqIO.convert('${src}', 'sff', '${out}', 'fastq')
-         |]
-
+    "data/*.fastq" ?%> \out -> do  -- use python to convert fastq to sff. (?%>) indicates it may already be supplied by user.
+      let src = out -<.> "sff"
+      need [src]
+      -- below is a multiline string
+      runPython [i|
+      from Bio import SeqIO
+      SeqIO.convert('${src}', 'sff', '${out}', 'fastq')
+      |]
+      
+-- rule for targets which may already exist.
+-- otherwise, shake will try to build something--even if the user has supplied it.
+(?%>) pat act = pat %> \out -> do
+  b <- doesFileExist out
+  unless b $ act out
+      
+-- cutadapt runner functions
 unpCutAdapt fq = unit $ cmd "cutadapt" ["-a", "AACCGGTT", "-o", fq <.> "cutadapt" , fq ] 
 pCutAdapt fwd rev = unit $ cmd "cutadapt" ["-a", "ADAPTER_FWD", "-A", "ADAPTER_REV", "-o", outFwd, "-p", outRev,  fwd, rev]
-  where (outFwd, outRev) = (fwd <.> "cutdapt", rev <.> "cutadapt")
+  where (outFwd, outRev) = (fwd <.> "cutdapt", rev <.> "cutadapt") 
 
-matching str strings = (filter (=~ str) strings) :: [String] 
-
+-- split files based on their names into unpaired, etc.
+-- groupFastqs ["unp.fastq", "bar_R1_.fastq", "foo_R1_.fastq", "foo_R2_.fastq", "bar_R1_.fastq"] === (["unp.fastq"], ["bar_R1_.fastq", "bar_R2_.fastq"], ["foo_R1_.fastq", "foo_R2_.fastq"])
 groupFastqs fqs = (unpaired, fwd, rev) 
   where
-    fwd = matching "_R1_" fqs
-    rev = matching "_R2_" fqs 
-    unpaired = [x | x <- fqs, not (x `elem` (fwd ++ rev))]
+   fwd = matching "_R1_" fqs
+   rev = matching "_R2_" fqs 
+   unpaired = [x | x <- fqs, not (x `elem` (fwd ++ rev))]
+   matching str strings = (filter (=~ str) strings) :: [String] 
 
 -- FilePath is an alias for string
+-- run pFunc on the paired fastqs, unpFunc on the unpaired fastqs.
+-- pFunc runs with forward and reverse.
 mapPairedUnpaired :: (FilePath -> FilePath -> Action ()) -> (FilePath -> Action ()) -> [FilePath] -> Action ()
-mapPairedUnpaired pF unpF fqs = do
-  _ <- (mapM_ unpF unp) 
-  zipWithM_ pF fwd rev 
+mapPairedUnpaired pFunc unpFunc fqs = do
+  _ <- (mapM_ unpFunc unp) 
+  zipWithM_ pFunc fwd rev 
   where (unp, fwd, rev) =  groupFastqs fqs
 
- 
-allFqs = liftA2 (++) sffs fqs
-  where 
-    sffs = liftM (map (-<.> "fastq")) $ getDirectoryFiles "" ["data/*.sff"]
-    fqs =  getDirectoryFiles "" ["data/*.fastq"] 
-
+-- Get all current fastq files, and all sff files which are expected to convert to fastq files.
+allFqs = do
+ fqs <- getDirectoryFiles "" ["data/*.fastq"]
+ sffs <- getDirectoryFiles "" ["data/*.sff"]
+ let sffs2fastqs = map (-<.> "fastq") sffs
+ return (sffs2fastqs ++ fqs)
+  
+-- given a string of python code, create a temporary file, write that string to the file,
+-- then execute it with the "python" interpreter.
 runPython str = do 
   withTempFile $ \file -> do 
     liftIO $ writeFile file fixedStr
     cmd "python" file 
-  where 
-    isWhitespace = null . dropWhile (\x -> (x==' ') || (x == '\n'))
-    full = dropWhile isWhitespace $ lines str 
-    indent = length $ takeWhile (== ' ') $ head full
-    fixedStr = unlines $ map (drop indent) full
+  where
+   -- just mangle the text so that the indentation is correct, this allows more readable strings.
+   isWhitespace = null . dropWhile (\x -> (x==' ') || (x == '\n'))
+   full = dropWhile isWhitespace $ lines str 
+   indent = length $ takeWhile (== ' ') $ head full
+   fixedStr = unlines $ map (drop indent) full
 
--- note that stack cannot tell if a rule has changed. so altering want/need and re-running won't work.
-       -- () <-  is needed if cmd is not the last statement, e.g.
-       -- () <- cmd Shell "cat" fqs ">" [out]  -- [out] = ["align.bam"]
-         -- sffs <- getDirectoryFiles "" ["//*.sff"]
-    --foldl (\x y -> x ++ "\n" ++ y) "" $ map (drop indent) $ lines str
+
+
+-- note that shake cannot tell if a rule has changed. so altering want/need and re-running won't work.
+       -- () <-  is needed if cmd is not the last statement

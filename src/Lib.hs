@@ -14,6 +14,9 @@ import Control.Monad
 import Control.Applicative
 import Data.Traversable (for)
 import Data.Foldable (for_)
+import Bio.Sequence.FastQ (writeSangerQ)
+import Bio (applyFilters)
+
 -- To run:
 -- stack setup
 -- stack build
@@ -40,6 +43,13 @@ block = shakeArgs shakeOptions{shakeFiles="_build"} $ do
       need fqs
       mapPairedUnpaired pCutAdapt unpCutAdapt fqs
 
+    "data/*.filtered" %> \out -> do
+      let src = out -<.> "fastq"
+      need [src]
+      recs <- liftIO $ applyFilters 30 src
+      liftIO $ writeSangerQ out recs
+--liftIO $ writeSangerQ out =<< applyFilters 30 src
+      
     "data/*.fastq" ?%> \out -> do  -- use python to convert fastq to sff. (?%>) indicates it may already be supplied by user.
       let src = out -<.> "sff"
       need [src]

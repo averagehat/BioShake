@@ -40,12 +40,12 @@ readFastq p = do
 getIndex :: FilePath -> IO (Maybe FilePath)
 getIndex p = do
   exists <- doesFileExist name
-  if exists && (name /= p) then return (Just name) else return Nothing
+  return $ if exists && (name /= p) then (Just name) else Nothing
   where name = subRegex (mkRegex "_R([12])_") p "_I\\1_"
 
 -- drop Ns and reads with bad quality index.
 applyFilters :: Int -> FilePath -> IO [FastqRecord]
-applyFilters q fp = dropNs <$> (dropIndexQual q fp)
+applyFilters q fp = fmap dropNs (dropIndexQual q fp)
 
 -- filter out reads where the read sequence contains an "N"
 dropNs seqs = filter (not . hasN) seqs
@@ -56,9 +56,9 @@ dropNs seqs = filter (not . hasN) seqs
 -- 2. drop all reads from fp where the matching index read has quality under N
 dropIndexQual :: Int -> FilePath -> IO [FastqRecord]
 dropIndexQual n fp = do
- seqs   <- readFastq fp
  index  <- getIndex fp
- let idSeqs = readFastq <$> index
+ seqs   <- readFastq fp
+ let idSeqs = fmap readFastq index
  maybe (return seqs) (liftA (dropBad seqs)) idSeqs
  where 
   dropBad recs idSeqs' = map snd $ filter (goodQual . fst) $ zip idSeqs' recs
